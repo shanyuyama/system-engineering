@@ -1,63 +1,79 @@
 import numpy as np
 
 def powell_method(f, x0, epsilon=1e-6, max_iter=100):
-    """
-    鲍威尔法（Powell's method）实现无约束优化
-    :param f: 目标函数
-    :param x0: 初始点
-    :param epsilon: 收敛精度
-    :param max_iter: 最大迭代次数
-    :return: 近似最优点和函数值
-    """
     n = len(x0)
     directions = np.eye(n)  # 初始搜索方向（坐标轴方向）
     x = x0.copy()
-    x_prev_cycle = x.copy()
+    x_prev_cycle = x.copy()  # 初始化前一阶段初始点
+    
     for _ in range(max_iter):
-        fx_prev = f(x)
+        fx_prev = f(x_prev_cycle)
         max_delta = -np.inf
         max_idx = 0
-        x_prev_cycle = x.copy()
+        
         # 阶段1: 沿每个方向进行一维搜索
+        x_current = x_prev_cycle.copy()
+        f_values = [fx_prev]  # 记录各点函数值
+        
         for i in range(n):
-            # 定义一维搜索函数（黄金分割法）
+            # 一维搜索函数
             def line_search(alpha):
-                return f(x + alpha * directions[i])
+                return f(x_current + alpha * directions[i])
             
-            # 黄金分割法找最优步长
+            # 确定搜索区间并优化
             a, b = bracket_minimum(line_search)
             alpha = golden_section(line_search, a, b, epsilon)
-            print(f"第{i+1}维搜索: alpha = {alpha}")
-            # 更新点并记录最大变化方向
-            x_new = x + alpha * directions[i]
-            delta = f(x) - f(x_new)
+            x_current += alpha * directions[i]
+            f_current = f(x_current)
+            f_values.append(f_current)
+            
+            # 记录最大delta及其方向索引
+            delta = f_values[-2] - f_current
             if delta > max_delta:
                 max_delta = delta
                 max_idx = i
-            x = x_new
         
-        # 阶段2: 生成新方向并判断是否替换旧方向
-        new_dir = x - x_prev_cycle
-        if np.linalg.norm(new_dir) < epsilon:  # 新方向太小则终止
-            break
+        # 阶段2: 判断是否生成新方向
+        f1 = fx_prev                  # f(x^{k,0})
+        f2 = f_values[-1]             # f(x^{k,n})
+        f3 = f(2*x_current - x_prev_cycle)  # f(2x^{k,n} - x^{k,0})
         
-        # 沿新方向进行一维搜索
-        def line_search_new(alpha):
-            return f(x + alpha * new_dir)
+        # 判断是否允许生成新方向（Powell条件）
+        condition1 = f3 >= f1
+        left = (f1 - 2*f2 + f3) * (f1 - f2 - max_delta)**2
+        right = 0.5 * max_delta * (f1 - f3)**2
+        condition2 = left >= right
         
-        a, b = bracket_minimum(line_search_new)
-        alpha_new = golden_section(line_search_new, a, b, epsilon)
-        x_new = x + alpha_new * new_dir
+        if condition1 or condition2:
+            # 不生成新方向，保留原有方向
+            x = x_current
+            x_prev_cycle = x.copy()
+            continue
+        else:
+            # 生成新方向并进行一维搜索
+            new_dir = x_current - x_prev_cycle
+            new_dir_norm = new_dir / np.linalg.norm(new_dir)
+            
+            def line_search_new(alpha):
+                return f(x_current + alpha * new_dir)
+            
+            a, b = bracket_minimum(line_search_new)
+            alpha_new = golden_section(line_search_new, a, b, epsilon)
+            x_new = x_current + alpha_new * new_dir
+            
+            # 更新方向和点
+            if f(x_new) < f(x_current):
+                directions = np.delete(directions, max_idx, axis=0)
+                directions = np.vstack([directions, new_dir_norm])
+                x = x_new
+                x_prev_cycle = x.copy()
+            else:
+                x = x_current
+                x_prev_cycle = x.copy()
         
-        # 判断是否替换旧方向
-        if f(x_new) < f(x):
-            x = x_new
-            directions = np.delete(directions, max_idx, axis=0)  # 删除效果最差的方向
-            directions = np.vstack([directions, new_dir / np.linalg.norm(new_dir)])  # 添加新方向
-        
+        # 收敛判断
         if np.linalg.norm(x - x_prev_cycle) < epsilon:
             break
-        x_prev_cycle = x.copy()
     
     return x, f(x)
 
@@ -95,6 +111,6 @@ def objective(x):
     return 50 - 8*x[0] -2*x[1] + x[0]**2 + 2*x[1]**2 - x[0]*x[1]
 
 # 初始点
-x0 = np.array([1, 1])
+x0 = np.array([1.0, 1.0])
 result, f_val = powell_method(objective, x0)
 print(f"最优解: x = {result}, f(x) = {f_val}")
